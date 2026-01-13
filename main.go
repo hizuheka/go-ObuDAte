@@ -24,6 +24,7 @@ func main() {
 	// 引数の定義
 	dir := flag.String("dir", ".", "処理対象フォルダのパス")
 	idCol := flag.Int("id", 1, "識別番号の列番号（1始まり）")
+	flagCol := flag.Int("flag", 0, "フラグの列番号（1始まり、0の場合はチェックしない）") // 追加
 	insertF := flag.String("insertF", "insert", "追加ファイルの識別子")
 	updateF := flag.String("updateF", "update", "更新ファイルの識別子")
 	minStr := flag.String("min", "0", "識別番号の最小値")
@@ -38,6 +39,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// flagのバリデーション (指定されている場合のみ)
+	flagColIdx := -1
+	if *flagCol > 0 {
+		flagColIdx = *flagCol - 1
+	}
+
 	// minのパース
 	minID, err := strconv.ParseInt(*minStr, 10, 64)
 	if err != nil {
@@ -47,11 +54,12 @@ func main() {
 
 	// 設定の構築
 	cfg := Config{
-		Dir:      *dir,
-		IDColIdx: *idCol - 1, // 1-based to 0-based
-		InsertF:  *insertF,
-		UpdateF:  *updateF,
-		MinID:    minID,
+		Dir:        *dir,
+		IDColIdx:   *idCol - 1, // 1-based to 0-based
+		FlagColIdx: flagColIdx, // -1 if not specified
+		InsertF:    *insertF,
+		UpdateF:    *updateF,
+		MinID:      minID,
 	}
 
 	fsSys := RealFileSystem{}

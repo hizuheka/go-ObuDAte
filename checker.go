@@ -14,11 +14,12 @@ import (
 
 // Config はチェック処理の設定を保持します。
 type Config struct {
-	Dir      string // 処理対象ディレクトリ
-	IDColIdx int    // 識別番号の列インデックス (0-based)
-	InsertF  string // 追加ファイルの接頭辞
-	UpdateF  string // 更新ファイルの接頭辞
-	MinID    int64  // 識別番号の最小値
+	Dir        string // 処理対象ディレクトリ
+	IDColIdx   int    // 識別番号の列インデックス (0-based)
+	FlagColIdx int    // フラグの列インデックス (0-based) <--- 追加
+	InsertF    string // 追加ファイルの接頭辞
+	UpdateF    string // 更新ファイルの接頭辞
+	MinID      int64  // 識別番号の最小値
 }
 
 // Stats は処理結果の統計情報を保持します。
@@ -160,9 +161,14 @@ func (p *Processor) processFile(filename string, isInsert bool) (int, error) {
 // validateRow は1行のデータに対してビジネスロジックを適用します。
 func (p *Processor) validateRow(record []string, isInsert bool) CheckResult {
 	// 列不足チェック
-	// 識別番号の列が存在するか確認
-	if len(record) <= p.cfg.IDColIdx {
-		p.logger.Warn("invalid column length", slog.Int("len", len(record)), slog.Int("required_idx", p.cfg.IDColIdx), slog.Any("record", record))
+	// 識別番号列とフラグ列(指定されている場合)が存在するか確認
+	requiredLen := p.cfg.IDColIdx + 1
+	if p.cfg.FlagColIdx >= 0 && (p.cfg.FlagColIdx+1) > requiredLen {
+		requiredLen = p.cfg.FlagColIdx + 1
+	}
+
+	if len(record) < requiredLen {
+		p.logger.Warn("invalid column length", slog.Int("len", len(record)), slog.Int("required", requiredLen), slog.Any("record", record))
 		return CheckResult{IsError: false}
 	}
 
@@ -175,16 +181,25 @@ func (p *Processor) validateRow(record []string, isInsert bool) CheckResult {
 
 	if isInsert {
 		// 追加ファイルのルール
-		// 優先順位: 重複 > Min
+		// 優先順位: フラグ=0 (New) > 重複 > Min
+		// ※フラグ=0のエラーメッセージは「追加ファイルで2回目」とする仕様
 
-		// 1. 2回目の出現チェック
+		// 1. フラグチェック (Flag=0 の場合はエラー)
+		if p.cfg.FlagColIdx >= 0 {
+			flagVal := record[p.cfg.FlagColIdx]
+			if flagVal == "0" {
+				p.markError(idStr)
+				return CheckResult{IsError: true, Message: "追加ファイルで2回目"}
+			}
+		}
+
+		// 2. 2回目の出現チェック
 		if p.seenIDs[idStr] {
 			p.markError(idStr)
 			return CheckResult{IsError: true, Message: "追加ファイルで2回目"}
 		}
 
-		// 2. 識別番号の最小値チェック (int64で比較)
-		// 10桁の数値に変換可能な文字列前提
+		// 3. 識別番号の最小値チェック (int64で比較)
 		idInt, err := strconv.ParseInt(idStr, 10, 64)
 		if err == nil && idInt < p.cfg.MinID {
 			p.markError(idStr)
